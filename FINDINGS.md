@@ -7,15 +7,19 @@ FES is the "Fractal Encryption Standard" by Portalz PTY LTD (Wolfgang Flatow, Co
 This document presents our findings from:
 - Reading the published specification (FractalTransformationProcessSpecificationV3.pdf)
 - Reading the detailed presentation (docs/FT-Explained.pdf)
+- Reading all 12 technical papers published by Portalz (Nov 2025 – Feb 2026)
 - Reading the marketing materials at portalz.solutions/fes.html
 - Reading the European patent EP4388438A1
+- Analyzing the AI "peer reviews" (Grok 4, Claude, ChatGPT 5.2) commissioned by Portalz
 - Reverse-engineering the algorithm via the live demo at portalz.solutions/fractalTransform.html
+- Extracting and analyzing the client-side JavaScript (fes.js, fractal.js)
 - Building a Python implementation based on the spec
 - Benchmarking FES against AES-256
-- Demonstrating practical attacks against the live server
+- Demonstrating 7 practical attacks against the live server
 - Collecting and analyzing 592 experimental data points from the live server
+- Reverse-engineering all 3 overwrite operator formulas and their application order
 
-**TL;DR**: FES is a simple XOR stream cipher using Mandelbrot iterations as a PRNG. It is trivially broken by known-plaintext attacks, has no authentication, no nonce, and is hundreds of times slower than AES. Every major security claim on the website is false or misleading.
+**TL;DR**: FES is a simple XOR stream cipher using Mandelbrot iterations as a PRNG. It is trivially broken by known-plaintext attacks, has no authentication, no nonce, and is hundreds of times slower than AES. Despite a suite of 12 papers claiming "logical impenetrability" and "Shannon's perfect secrecy," we demonstrated keystream recovery, decryption, and forgery against the live production server. Three AI "peer reviews" (Grok, Claude, ChatGPT) were solicited by the author and all failed to identify these trivial vulnerabilities, making them worse than useless as security validation.
 
 ---
 
@@ -238,6 +242,87 @@ FT-Explained.pdf (slide 10) describes how after the hash selects an entry portal
 - AES-256-CTR achieves ~1.2 GB/s on the same hardware — roughly **1,200x faster** than FES.
 - The per-byte Mandelbrot iteration requirement makes FES fundamentally slower than block ciphers.
 
+### Claim 10: "Achieves Shannon's Perfect Secrecy in a Practical Framework"
+
+**VERDICT: FALSE**
+
+The Executive Summary (Nov 2025) claims FES satisfies Shannon's perfect secrecy criterion: P(plaintext | ciphertext) = P(plaintext). This is mathematically impossible for any cipher with key reuse, which FES explicitly supports.
+
+Shannon's perfect secrecy requires that the key be:
+1. **At least as long as the message** (FES keys are typically 8-20 characters for arbitrarily long messages)
+2. **Used only once** (FES reuses the same keystream for every message under the same key)
+3. **Truly random** (FES keys are user-chosen passwords)
+
+FES fails all three requirements. Our known-plaintext attack proves P(plaintext | ciphertext) ≠ P(plaintext): given one known plaintext/ciphertext pair, we can decrypt ALL future messages with certainty. This is the exact opposite of perfect secrecy.
+
+### Claim 11: "Logical Impenetrability — Not Computational Hardness"
+
+**VERDICT: FALSE**
+
+The Impenetrability paper (Feb 2026) asserts: "Irreversibility = Perfect Secrecy = Impenetrability" — claiming FES achieves security by "logical impossibility" rather than computational difficulty.
+
+This is a category error. The paper's central argument is that because the password is "discarded" after portal generation, an attacker cannot reverse the process. But our attacks bypass this entirely:
+- We don't need to reverse the portal generation
+- We don't need to recover the password
+- We simply extract the keystream from any known plaintext/ciphertext pair
+- The extracted keystream decrypts all other messages and enables forgery
+
+The "logical impenetrability" thesis assumes the only attack vector is password recovery. Real-world cryptanalysis has many more attack vectors, and FES is vulnerable to the most basic one.
+
+### Claim 12: "Password Discard Ensures Security"
+
+**VERDICT: IRRELEVANT**
+
+All FES papers emphasize that the password is "discarded" after Stage 1 (portal generation) and "never applied to the payload." This is presented as a fundamental security advantage over block ciphers like AES.
+
+This is a distinction without a difference:
+- In AES, the key schedule expands the key into round keys that transform the plaintext. The original key is not "applied directly" either — the round keys are.
+- In FES, the key generates a portal that produces a keystream. The key is not "applied directly" — the keystream is.
+- Both are deterministic functions of the key. Both produce the same output for the same key. The intermediate representation (round keys vs portal coordinates) is irrelevant to security.
+- AES's key schedule is also "one-way" in practice — you can't recover the key from observing round key operations. This is not unique to FES.
+
+### Claim 13: "Immune to Harvest Now Decrypt Later (HNDL) Attacks"
+
+**VERDICT: FALSE**
+
+The Executive Summary claims immunity to HNDL attacks. HNDL refers to the threat that an adversary records encrypted traffic today and decrypts it later with a quantum computer. FES's purported immunity relies on the false claim that AES is quantum-vulnerable (see Claim 1).
+
+More critically: our attacks work TODAY, without any quantum computer. An adversary who has ever seen a single known plaintext/ciphertext pair for a given key can decrypt all past and future messages under that key immediately. FES is vulnerable to "Harvest Now, Decrypt Now."
+
+### Claim 14: "Infinite Plausible Deniability"
+
+**VERDICT: MISLEADING**
+
+Multiple papers claim that wrong keys produce "plausible" but incorrect decryptions, providing "infinite plausible deniability." The Grok review even claims to have tested this, finding outputs resembling "Bible excerpts, tax forms, code, JSON."
+
+This is true of ANY stream cipher (or ANY cipher at all) — decrypting with a wrong key produces pseudorandom bytes, which will occasionally contain short sequences that look like text. This is not a meaningful security property. AES-CTR with a wrong key produces the same kind of random-looking output.
+
+True plausible deniability in cryptography (e.g., VeraCrypt hidden volumes) requires carefully engineered dual-use containers where a different key reveals a different but coherent dataset. FES does not provide this — it just produces random noise that, in an infinite keyspace, will statistically contain any finite pattern.
+
+### Claim 15: "Ultra Entropic Chaos — Distinct from Both PRNGs and Physical Entropy"
+
+**VERDICT: MEANINGLESS**
+
+The HFN Theory paper (Dec 2025) introduces "Ultra Entropic Chaos (UEC)" as a new category of randomness, distinct from both PRNGs and true random number generators. This is not a recognized concept in any field of mathematics, physics, or computer science.
+
+The Mandelbrot iteration is a **deterministic computation**. Its output is entirely determined by its input. It is, by definition, a PRNG — a function that produces a sequence of values from a seed (the portal coordinates). Calling it something else does not change its mathematical properties.
+
+The "hyperchaotic" label (multiple positive Lyapunov exponents) describes sensitivity to initial conditions, which is a well-studied property of dynamical systems. It does not imply cryptographic security. Many chaotic systems have been broken as ciphers precisely because chaos theory provides tools for analyzing them that standard cryptanalysis does not need.
+
+### Claim 16: "Multi-Pass Design Provides Additional Security"
+
+**VERDICT: FALSE**
+
+All papers recommend "minimum 3 passes" for security. Stage 3 describes the multi-pass design as providing "amplified" security. However:
+
+Our testing proves that with XOR mode (the default):
+- **All passes use the identical keystream**
+- **Even-numbered passes cancel out** (P ⊕ K ⊕ K = P)
+- **Depth 3 = Depth 1** (two passes cancel, leaving one)
+- **Depth 2 = NO ENCRYPTION** (ciphertext is base64 of plaintext!)
+
+The "3 passes" default on the demo server provides exactly the same security as 1 pass — zero additional benefit. A user who selects depth=2 gets null encryption.
+
 ### Attack 5: Multi-Pass XOR Provides Zero Security
 
 ```
@@ -298,46 +383,62 @@ FES provides no integrity protection. An attacker can:
 
 Modern standards (TLS 1.3, etc.) require authenticated encryption (e.g., AES-GCM, ChaCha20-Poly1305). FES provides only confidentiality, and even that is weak.
 
-### 3. Floating-Point Determinism and String-Dependent Computation
+### 3. Portability and Reproducibility Issues
 
-The algorithm has a fatal portability flaw that goes beyond normal floating-point concerns.
+The algorithm has portability concerns that the documentation attempts to address but does not fully resolve.
 
-**The stream byte computation depends on the string representation of a float.**
-
-Analysis of the client-side JavaScript source (`portalz.solutions/qb/js/fractal.js`) reveals the core computation:
+The HFN Theory paper (Dec 2025, §7.5) explicitly states FES uses **fixed-point decimal arithmetic** rather than floating-point, which would eliminate platform-dependent rounding. However, an earlier client-side JavaScript implementation (`portalz.solutions/qb/js/fractal.js`) reveals a different approach — string-based extraction:
 
 ```javascript
-// The "fractal value" is zx² + zy² (squared magnitude of final z)
-return [zx*zx+zy*zy, ...];
-
-// Stream byte extraction:
 var stripped = v[0].toString().replace('.', '');
 var streamByte = stripped % 256;
 ```
 
-The algorithm converts the floating-point result to a **string**, removes the decimal point, converts back to an integer, and takes mod 256. This means:
+This string-based approach is inherently non-portable. The production server may use fixed-point arithmetic (as the papers claim), but the exact format is unspecified: the number of decimal digits, the representation format, and the precise computation of z²+c in fixed-point are never published.
 
-- **Different languages produce different results for the same input.** JavaScript's `(4.912345678901234).toString()` may produce a different number of digits than Python's `repr(4.912345678901234)` or Java's `Double.toString(4.912345678901234)`. Even a single extra digit changes the mod 256 result completely.
-- **Different runtime versions can break compatibility.** V8, SpiderMonkey, and JavaScriptCore may format floats differently. Python changed its float repr algorithm in version 3.1.
-- **The algorithm is not mathematically defined.** It depends on an implementation artifact (string formatting) rather than a mathematical operation. This makes it impossible to write an interoperable implementation from the specification.
+Either way, the algorithm cannot be independently implemented because:
+- The fixed-point format and precision are unspecified
+- The stream extraction mixing function is unspecified
+- The Silo mapping table is unpublished
+- The dynamic prime array is unpublished
+- The key expansion method is underspecified
 
-Even the IEEE 754 Mandelbrot computation itself compounds this problem:
-- Different CPUs, compilers, or floating-point modes may produce different intermediate z values
-- Extended precision registers (x87 80-bit) vs SSE 64-bit produce different results
-- Fused multiply-add (FMA) instructions change rounding behavior
+Well-designed ciphers are defined entirely in terms of integer arithmetic with published test vectors. AES can be implemented identically in any language from FIPS 197 alone. FES cannot be implemented at all without access to the proprietary server.
 
-Well-designed ciphers use exclusively integer arithmetic precisely to avoid these issues. AES is defined entirely in terms of byte operations and finite field arithmetic — it produces identical results on every platform, every language, every CPU.
-
-### 4. No Peer Review
+### 4. No Genuine Peer Review
 
 - The specification was "driven by a collaboration between ChatGBT AI and Wolfgang Flatow" (sic — the spec misspells "ChatGPT")
-- No independent cryptanalysis has been published
+- No independent cryptanalysis has been published in any academic venue
 - No academic papers, no conference presentations, no formal security proofs
 - The "impenetrability proof" is ChatGPT output, not a mathematical proof
+
+The author commissioned three AI "peer reviews" (Grok 4, Claude, ChatGPT 5.2) in February 2026, all of which concluded FES is "unbroken." These reviews are worse than useless because:
+
+1. **They failed to identify trivial attacks.** All three AI reviews concluded FES is resistant to known-plaintext attacks. We demonstrated this attack works trivially against the live server. The AIs were asked to evaluate the system within the author's own "Peer Review Guide" framework, which constrains the review to questions about "logical irreversibility" and excludes the standard cryptographic attack models that actually break the system.
+
+2. **The review framework is rigged.** The FES Peer Review Guide (Feb 27, 2026) defines "break conditions" that exclude the actual vulnerabilities. It asks reviewers to evaluate "logical/geometric irreversibility" — whether the password can be recovered from the ciphertext. This is the wrong question. The right question is whether the *plaintext* can be recovered, which it trivially can via keystream extraction.
+
+3. **AI reviewers uncritically accepted the framework.** None of the three AIs questioned whether the review framework itself was sound. None asked "but what if an attacker doesn't need to recover the password?" None tested the system with actual known-plaintext probing. They evaluated theoretical properties within the author's chosen frame, rather than performing independent adversarial analysis.
+
+4. **The reviews are presented as independent validation.** Publishing AI-generated reviews with perfect 5/5 scores as "independent peer review" is misleading. Genuine peer review means submission to academic cryptography venues (e.g., IACR ePrint, CRYPTO, Eurocrypt, CCS) where reviewers are adversarial experts, not prompted language models.
 
 ### 5. The "Fractal" Aspect Is Cosmetic
 
 The Mandelbrot iteration is just a deterministic function that maps (x,y) coordinates to values. It could be replaced by any PRNG or hash function without changing the security properties. The "infinite complexity" of fractals is irrelevant — what matters is whether the keystream is cryptographically secure, which requires formal analysis that has not been performed.
+
+The term "Ultra Entropic Chaos" introduced in the HFN Theory paper is not a recognized concept in any scientific field. The Mandelbrot iteration is a well-studied deterministic dynamical system that has been characterized since the 1980s. Using novel terminology does not create novel security properties.
+
+### 6. Implementation Inconsistencies Reveal Engineering Issues
+
+Our server probing revealed multiple inconsistencies that indicate the implementation has not been rigorously tested:
+
+- **The `xor` checkbox is ignored** — the server always uses XOR regardless of the form parameter state
+- **dim=8 produces an entirely different stream** from dim≥10, which all share a common tail — suggesting a different code path or algorithm for the default dimension count
+- **FOTP acts as boolean** — any value ≥2 characters produces the same alternate stream, regardless of the actual value. This defeats its documented purpose as a filename/session-specific nonce.
+- **Multi-pass XOR cancellation** — even-depth passes produce null encryption, meaning depth=2 returns the plaintext in base64. This should be caught by any basic testing.
+- **The "3 passes" default does nothing** — it's equivalent to 1 pass with XOR mode
+
+These are not subtle edge cases. They are fundamental implementation errors that any testing regime would catch.
 
 ---
 
@@ -402,26 +503,60 @@ The inability to independently implement FES from its specification is itself a 
 | Feature | FES | AES-256-GCM |
 |---------|-----|-------------|
 | Throughput | ~1 MB/s | ~1 GB/s |
-| Nonce/IV | None | Yes (required) |
+| Nonce/IV | None (FOTP is boolean, not a nonce) | Yes (required) |
 | Authentication | None | Yes (AEAD) |
-| Known-plaintext resistance | None | Complete |
-| Ciphertext forgery resistance | None | Complete |
-| Peer review | None | 25+ years of global analysis |
+| Known-plaintext resistance | None (single pair reveals full keystream) | Complete |
+| Ciphertext forgery resistance | None (trivial with recovered keystream) | Complete |
+| Multi-pass security | None (even passes = null encryption) | N/A (single pass is sufficient) |
+| Peer review | AI chatbots (Grok, Claude, ChatGPT) — missed trivial attacks | 25+ years of global expert analysis |
 | Hardware acceleration | None | AES-NI on all modern CPUs |
-| Standardization | Self-published | NIST standard (FIPS 197) |
-| Quantum resistance | Unknown (no analysis) | 128-bit security (sufficient) |
+| Standardization | Self-published, spec incomplete | NIST standard (FIPS 197) |
+| Independent implementation | Impossible (7+ unpublished components) | Any language, byte-identical results |
+| Quantum resistance | Unknown (no analysis performed) | 128-bit security (sufficient) |
 | Floating-point dependency | Yes (portability risk) | No (integer only) |
-| Spec quality | ChatGPT-assisted, typos | Formal, peer-reviewed |
+| Spec quality | ChatGPT-assisted, 12 papers, no formal proofs | Formal, peer-reviewed, published test vectors |
 
 ---
 
 ## Conclusion
 
-FES is not a credible encryption standard. It is a homebrew stream cipher that lacks the basic security properties expected of any modern cryptographic construction. Its marketing materials contain numerous false and misleading claims about both its own capabilities and the vulnerabilities of established standards.
+FES is not a credible encryption standard. Despite a suite of 12 papers, a European patent, and three AI "peer reviews," FES is a homebrew stream cipher that lacks the basic security properties expected of any modern cryptographic construction.
 
-The claim that AES is "quantum vulnerable" is false. The claim that FES is "impenetrable" is false — we demonstrated practical attacks against the live server. The claim of "industrial strength performance" is false — FES is hundreds to thousands of times slower than AES.
+### What FES Claims vs What We Found
 
-Organizations seeking quantum-resistant encryption should use **AES-256-GCM** (already quantum-resistant) for symmetric encryption, and NIST's post-quantum standards (ML-KEM, ML-DSA) for asymmetric operations. There is no need for FES or any similar unvetted alternative.
+| Claim | Reality |
+|-------|---------|
+| "Impenetrable" | Keystream recovered from a single known-plaintext pair |
+| "Shannon's Perfect Secrecy" | Deterministic stream reused for every message under the same key |
+| "Logical irreversibility" | Full decryption and forgery demonstrated against live server |
+| "Non-deterministic" | Completely deterministic — same key always produces same stream |
+| "Infinite plausible deniability" | Standard property of any cipher; not unique or meaningful |
+| "Password is discarded" | Irrelevant — attacks bypass password recovery entirely |
+| "Multi-pass amplifies security" | Even passes cancel to identity; 3 passes = 1 pass |
+| "FOTP provides nonce functionality" | Acts as boolean toggle, not a true nonce |
+| "Ultra Entropic Chaos" | Standard deterministic computation; not a recognized concept |
+| "Quantum-proof" | No analysis performed; meanwhile, AES-256 already has 128-bit quantum security |
+| "Replaces AES" | ~1000x slower, no authentication, no nonce, trivially broken |
+| "Peer reviewed" | AI chatbots prompted within the author's own rigged evaluation framework |
+
+### The Core Failure
+
+FES's entire security thesis rests on the claim that the keystream is unrecoverable because the password is "discarded" after generating the fractal portal. This argument has a fatal gap: **the keystream doesn't need to be reverse-engineered from the password — it can be directly extracted from any known plaintext/ciphertext pair.**
+
+Once extracted, the keystream:
+- Decrypts all messages of equal or shorter length encrypted with the same key
+- Enables forgery of arbitrary messages the server will accept as valid
+- Is reusable forever (no nonce means the stream never changes for that key)
+
+This is not an exotic attack. It is the most basic test any cryptographer applies to a stream cipher, and FES fails it completely. The three AI "peer reviews" failed to identify this because they were constrained by the author's review framework, which asks about password recovery rather than plaintext recovery.
+
+### Recommendation
+
+Organizations seeking quantum-resistant encryption should use **AES-256-GCM** (already quantum-resistant with 128-bit security under Grover's algorithm) for symmetric encryption, and NIST's post-quantum standards (ML-KEM, ML-DSA) for asymmetric operations.
+
+The FES_and_AES.pdf paper suggests using FES on top of AES "for compliance plus impenetrability." This is also inadvisable: layering a broken cipher on top of a sound one adds complexity and attack surface without security benefit. If the inner AES layer is secure (which it is), the outer FES layer adds nothing but latency and a false sense of additional security.
+
+There is no need for FES or any similar unvetted alternative. The established cryptographic community has already solved the post-quantum symmetric encryption problem: AES-256 is sufficient.
 
 ---
 
