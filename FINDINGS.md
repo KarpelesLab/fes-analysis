@@ -311,28 +311,50 @@ The "hyperchaotic" label (multiple positive Lyapunov exponents) describes sensit
 
 ### Claim 16: "Multi-Pass Design Provides Additional Security"
 
-**VERDICT: FALSE**
+**VERDICT: PARTIALLY FALSE**
 
-All papers recommend "minimum 3 passes" for security. Stage 3 describes the multi-pass design as providing "amplified" security. However:
+All papers recommend "minimum 3 passes" for security. Stage 3 describes the multi-pass design as providing "amplified" security.
 
-Our testing proves that with XOR mode (the default):
-- **All passes use the identical keystream**
-- **Even-numbered passes cancel out** (P ⊕ K ⊕ K = P)
-- **Depth 3 = Depth 1** (two passes cancel, leaving one)
-- **Depth 2 = NO ENCRYPTION** (ciphertext is base64 of plaintext!)
+**Without scramble**: multi-pass XOR is completely broken. All passes use the identical stream, so even passes cancel (P ⊕ K ⊕ K = P). Depth 2 = null encryption. Depth 3 = depth 1. A user who disables scramble and selects depth=2 gets **no encryption at all**.
 
-The "3 passes" default on the demo server provides exactly the same security as 1 pass — zero additional benefit. A user who selects depth=2 gets null encryption.
+**With scramble (the default)**: multi-pass does produce genuinely different ciphertext per depth, because the scramble permutation introduces byte reordering between passes that prevents simple XOR cancellation. However, this does not provide meaningful additional security: the known-plaintext attack works against all depths by extracting both the effective XOR stream and the scramble permutation (requiring 2 chosen-plaintext queries instead of 1).
 
-### Attack 5: Multi-Pass XOR Provides Zero Security
+The null encryption vulnerability without scramble is a serious implementation flaw — the server should reject or warn about configurations that produce no encryption.
+
+### Attack 5: Multi-Pass Behavior Depends on Scramble
+
+**Without scramble** (scramble=off), multi-pass XOR provides zero security:
 
 ```
-depth=1 (1 pass):  stream = [109, 84, 124, 87, ...] → normal encryption
-depth=2 (2 passes): stream = [0, 0, 0, 0, ...]      → null encryption!
-depth=3 (3 passes): stream = [109, 84, 124, 87, ...] → same as depth=1
-depth=4 (4 passes): stream = [0, 0, 0, 0, ...]      → null encryption!
+depth=1: normal encryption
+depth=2: NULL ENCRYPTION (ciphertext = base64 of plaintext!)
+depth=3: same as depth=1
+depth=4: null encryption again
 ```
 
-All passes use the **same stream**. With XOR, even passes cancel out (P XOR K XOR K = P), and any remaining odd pass is identical to a single pass. The server's default "3 passes" is equivalent to 1 pass.
+All passes use the **same stream** without scramble. XOR cancels: P ⊕ K ⊕ K = P.
+
+**With scramble** (the server default, scramble=on), multi-pass does produce different ciphertext per depth because the scramble permutation reorders bytes differently between passes:
+
+```
+depth=1: ct=[68, 215, 199, 193, 118, ...]
+depth=2: ct=[51, 183, 191, 68, 69, ...]   (different, real encryption)
+depth=3: ct=[183, 229, 227, 193, 118, ...] (different from depth=1!)
+```
+
+However, the known-plaintext attack still works against all configurations including scramble + multi-pass. The attack just requires **two** known-plaintext queries instead of one:
+
+```
+Step 1: Encrypt "AAAAAAAAAA" → extract XOR stream
+Step 2: Encrypt "ABCDEFGHIJ" → extract scramble permutation
+Step 3: XOR unknown ciphertext with stream → scrambled plaintext
+Step 4: Un-permute → plaintext recovered!
+
+Recovered: "Hello!!!!!" ✓
+Recovered: "SecretText" ✓
+```
+
+The scramble permutation is deterministic per (key, length, depth), so once extracted it works for all messages.
 
 ### Attack 6: FOTP (Nonce) Is a Boolean, Not a Nonce
 
@@ -435,8 +457,8 @@ Our server probing revealed multiple inconsistencies that indicate the implement
 - **The `xor` checkbox is ignored** — the server always uses XOR regardless of the form parameter state
 - **dim=8 produces an entirely different stream** from dim≥10, which all share a common tail — suggesting a different code path or algorithm for the default dimension count
 - **FOTP acts as boolean** — any value ≥2 characters produces the same alternate stream, regardless of the actual value. This defeats its documented purpose as a filename/session-specific nonce.
-- **Multi-pass XOR cancellation** — even-depth passes produce null encryption, meaning depth=2 returns the plaintext in base64. This should be caught by any basic testing.
-- **The "3 passes" default does nothing** — it's equivalent to 1 pass with XOR mode
+- **Multi-pass XOR cancellation without scramble** — with scramble off, even-depth passes produce null encryption, meaning depth=2 returns the plaintext in base64. The server does not warn about or prevent this.
+- **Multi-pass with scramble still vulnerable to KPA** — while scramble prevents simple XOR cancellation, the combined operation remains deterministic and breakable with 2 chosen-plaintext queries
 
 These are not subtle edge cases. They are fundamental implementation errors that any testing regime would catch.
 
@@ -507,7 +529,7 @@ The inability to independently implement FES from its specification is itself a 
 | Authentication | None | Yes (AEAD) |
 | Known-plaintext resistance | None (single pair reveals full keystream) | Complete |
 | Ciphertext forgery resistance | None (trivial with recovered keystream) | Complete |
-| Multi-pass security | None (even passes = null encryption) | N/A (single pass is sufficient) |
+| Multi-pass security | Null encryption without scramble; KPA with scramble | N/A (single pass is sufficient) |
 | Peer review | AI chatbots (Grok, Claude, ChatGPT) — missed trivial attacks | 25+ years of global expert analysis |
 | Hardware acceleration | None | AES-NI on all modern CPUs |
 | Standardization | Self-published, spec incomplete | NIST standard (FIPS 197) |
@@ -532,7 +554,7 @@ FES is not a credible encryption standard. Despite a suite of 12 papers, a Europ
 | "Non-deterministic" | Completely deterministic — same key always produces same stream |
 | "Infinite plausible deniability" | Standard property of any cipher; not unique or meaningful |
 | "Password is discarded" | Irrelevant — attacks bypass password recovery entirely |
-| "Multi-pass amplifies security" | Even passes cancel to identity; 3 passes = 1 pass |
+| "Multi-pass amplifies security" | Without scramble: even passes = null encryption. With scramble: KPA still works (2 queries) |
 | "FOTP provides nonce functionality" | Acts as boolean toggle, not a true nonce |
 | "Ultra Entropic Chaos" | Standard deterministic computation; not a recognized concept |
 | "Quantum-proof" | No analysis performed; meanwhile, AES-256 already has 128-bit quantum security |

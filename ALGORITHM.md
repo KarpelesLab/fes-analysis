@@ -415,17 +415,26 @@ The Sort Array values are also used for substitution (sub) per-pass permutation 
 
 ### 3.5 Multi-Pass (Depth) Behavior
 
-**Verified**: The `depth` parameter controls the number of passes. All passes use the **identical stream** with XOR mode:
+**Verified**: The `depth` parameter controls the number of passes (1-7 in the UI).
+
+**Without scramble**: All passes use the **identical stream**:
 
 ```
 depth=1 (odd):  encrypted normally
 depth=2 (even): XOR cancels → null encryption (ciphertext = base64 of plaintext!)
 depth=3 (odd):  same as depth=1
 depth=4 (even): null encryption again
-...pattern continues
 ```
 
-This means **multi-pass XOR provides zero additional security** — it's either equivalent to single-pass (odd depths) or completely transparent (even depths). The server's default of depth=3 is identical to depth=1.
+**With scramble (the server default)**: Each pass produces a **different effective stream** because the scramble permutation reorders bytes between passes, preventing simple XOR cancellation:
+
+```
+depth=1: ct=[68, 215, 199, 193, 118, ...]
+depth=2: ct=[51, 183, 191, 68, 69, ...]   (different, real encryption)
+depth=3: ct=[183, 229, 227, 193, 118, ...] (different from both depth=1 and depth=2)
+```
+
+However, the combined (stream + scramble permutation) operation is still deterministic per (key, depth, length). A known-plaintext attack recovers both the effective XOR stream and the scramble permutation with 2 chosen-plaintext queries, enabling decryption of all messages at that depth.
 
 ### 3.6 FOTP Parameter
 
