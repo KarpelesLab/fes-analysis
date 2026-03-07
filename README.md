@@ -39,6 +39,9 @@ All attacks were performed against the production server at `portalz.solutions/f
 2. **Decryption** — decrypt unknown messages using the recovered keystream
 3. **Forgery** — craft ciphertexts that the server decrypts to arbitrary chosen messages
 4. **Scramble mode bypass** — all attacks work identically with scramble enabled
+5. **Multi-pass null encryption** — even-depth passes cancel to identity (depth=2 = no encryption)
+6. **FOTP bypass** — the "nonce" parameter acts as a boolean, not a true nonce
+7. **Operator reverse engineering** — fully recovered XOR, ADD, and SPLIT formulas and application order
 
 ## Repository Contents
 
@@ -49,6 +52,7 @@ All attacks were performed against the production server at `portalz.solutions/f
 | [`fes.py`](fes.py) | Python implementation of FES based on the published spec |
 | [`benchmark.py`](benchmark.py) | Performance and security comparison: FES vs AES-256 |
 | [`attack_server.py`](attack_server.py) | Known-plaintext attack against the live server |
+| [`probe_server.py`](probe_server.py) | Advanced server probing: phase transitions, operators, FOTP |
 | [`collect_data.py`](collect_data.py) | Data collection from the server for offline analysis |
 | [`analyze_data.py`](analyze_data.py) | Offline analysis of SHA-512 to keystream relationship |
 | [`data/`](data/) | Collected experimental data (592 key/stream entries) |

@@ -238,6 +238,45 @@ FT-Explained.pdf (slide 10) describes how after the hash selects an entry portal
 - AES-256-CTR achieves ~1.2 GB/s on the same hardware — roughly **1,200x faster** than FES.
 - The per-byte Mandelbrot iteration requirement makes FES fundamentally slower than block ciphers.
 
+### Attack 5: Multi-Pass XOR Provides Zero Security
+
+```
+depth=1 (1 pass):  stream = [109, 84, 124, 87, ...] → normal encryption
+depth=2 (2 passes): stream = [0, 0, 0, 0, ...]      → null encryption!
+depth=3 (3 passes): stream = [109, 84, 124, 87, ...] → same as depth=1
+depth=4 (4 passes): stream = [0, 0, 0, 0, ...]      → null encryption!
+```
+
+All passes use the **same stream**. With XOR, even passes cancel out (P XOR K XOR K = P), and any remaining odd pass is identical to a single pass. The server's default "3 passes" is equivalent to 1 pass.
+
+### Attack 6: FOTP (Nonce) Is a Boolean, Not a Nonce
+
+```
+fotp=''         → stream[0:5] = [109, 84, 124, 87, 119]  (default)
+fotp='test'     → stream[0:5] = [239, 226, 84, 242, 188]  (alternate)
+fotp='file.txt' → stream[0:5] = [239, 226, 84, 242, 188]  (SAME alternate!)
+fotp='session1' → stream[0:5] = [239, 226, 84, 242, 188]  (SAME alternate!)
+fotp='a'        → stream[0:5] = [109, 84, 124, 87, 119]  (no effect!)
+```
+
+The FOTP parameter that was supposed to provide nonce-like functionality:
+- Is binary: any value ≥2 chars triggers the **same** alternate stream
+- Different FOTP values produce **identical** ciphertext
+- Decryption with wrong FOTP still succeeds
+
+This means FOTP provides at most 1 extra bit of keyspace (on/off), not the filename/session-dependent variation claimed in the documentation.
+
+### Attack 7: Overwrite Operator Ordering Recovered
+
+We fully reverse-engineered the overwrite operator pipeline from the live server:
+
+1. **Operator application order**: XOR → ADD → SPLIT (verified with all combinations)
+2. **XOR formula**: `cipher[i] = plaintext[i] XOR stream[N-1-i]`
+3. **ADD formula**: `cipher[i] = (plaintext[i] + stream[N-1-i]) mod 256` (same stream index as XOR)
+4. **SPLIT formula**: `cipher[i] = rotate_left(plaintext[i], stream[N+1-i] mod 7)` (stream index offset by +2)
+5. **When no operator is checked**: XOR is used as default
+6. **The `xor` checkbox is ignored**: server always uses XOR regardless of checkbox state
+
 ---
 
 ## Fundamental Design Flaws
@@ -332,15 +371,27 @@ The patent is deliberately broad and underspecified, making independent implemen
 
 ## Can the Server's Output Be Independently Reproduced?
 
-**No.** Despite having the spec, the patent, the client-side source code, and extensive black-box testing, we cannot generate the same keystream as the server. The barriers are:
+**No.** Despite having the spec, the patent, 12 technical papers, the client-side source code, and extensive black-box testing, we cannot generate the same keystream as the server. The barriers are:
 
 1. **Unpublished mapping table** — 65,536 region coordinates that cannot be regenerated
-2. **Unknown key expansion method** — the marketing material says "iterations of SHA512 hashes" but the exact method is unspecified; it could be simple chaining, HMAC-SHA512 with unknown string constants, counter-mode hashing, or something else. The patent doesn't mention SHA-512 at all. Without knowing the expansion method, we cannot compute the correct expanded key bytes from a user's key.
+2. **Unknown key expansion method** — the marketing material says "iterations of SHA512 hashes" but the exact method is unspecified; it could be simple chaining, HMAC-SHA512 with unknown string constants, counter-mode hashing, or something else. The patent doesn't mention SHA-512 at all.
 3. **String-dependent computation** — stream bytes depend on how floats are formatted as strings, which varies across languages and runtimes
-4. **Undocumented multi-pass phases** — the stream changes at message-length boundaries (e.g., sizes 44, 72, 100 for dim=8) that are not described in any published material
-5. **Unspecified navigation parameters** — hypotenuse modulus, scaling factors, and angle formulas are not given
+4. **Key-dependent phase transitions** — the stream changes at message-length boundaries (e.g., multiples of 28 for dim=8) that are both key-dependent and undocumented
+5. **Unspecified navigation parameters** — the dynamic prime array, hypotenuse modulus, scaling factors, and angle formulas
+6. **Unknown fixed-point format** — the HFN Theory paper says "decimal arithmetic" but doesn't specify the precision or representation
+7. **Unknown stream extraction mixing function** — "12 significant bytes per dimension via memory transfer" involves an unspecified mixing/permutation step
 
 **However**, the keystream CAN be extracted from the server via known-plaintext probing. For any given (key, dimensions, message_length), sending a known plaintext reveals the exact keystream, which can then decrypt any other message with the same parameters. This was demonstrated successfully against the live server.
+
+**What we HAVE fully reverse-engineered from the live server:**
+- The exact encryption formula: `cipher[i] = plaintext[i] XOR stream[N-1-i]`
+- The ADD formula: `cipher[i] = (plaintext[i] + stream[N-1-i]) mod 256`
+- The SPLIT formula: `cipher[i] = rotate_left(plaintext[i], stream[N+1-i] mod 7)`
+- The operator application order: XOR → ADD → SPLIT
+- Multi-pass behavior: all passes use identical stream, even passes cancel with XOR
+- FOTP behavior: acts as boolean (on/off), not a true nonce
+- Cross-dimension stream sharing: dim≥10 share a common stream tail; dim=8 is independent
+- Phase transition patterns: 28-byte interval for dim=8, key-dependent boundary selection
 
 The inability to independently implement FES from its specification is itself a disqualifying flaw for any "standard." AES, by comparison, has published test vectors and can be implemented identically in any language from FIPS 197 alone.
 
@@ -449,10 +500,11 @@ One pair of keys sharing mapping index 28144 had different original key lengths 
 | `fes.py` | Python implementation of FES based on the published spec |
 | `benchmark.py` | Performance and security comparison: FES vs AES-256 |
 | `attack_server.py` | Live known-plaintext attack against portalz.solutions |
+| `probe_server.py` | Advanced server probing: phase transitions, operator analysis, FOTP |
 | `collect_data.py` | Data collection script — gathers key/stream pairs from server |
 | `analyze_data.py` | Offline analysis of SHA-512 → stream relationship |
 | `data/stream_data.json` | 592 collected key/stream entries |
 | `data/shared_index_groups.json` | Groups of keys sharing mapping indices |
-| `docs/FT-Explained.pdf` | Portalz presentation with test vectors and worked examples |
+| `docs/` | Source documents (spec PDF, FT-Explained, 12 technical papers) |
 | `FINDINGS.md` | This document |
 | `ALGORITHM.md` | Detailed algorithm specification as reverse-engineered |
