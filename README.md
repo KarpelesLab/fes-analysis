@@ -11,7 +11,7 @@ ciphertext[i] = plaintext[i] XOR keystream[N-1-i]
 ```
 
 We found that:
-- **AES is NOT quantum vulnerable** — AES-256 retains 128-bit security under Grover's algorithm (NIST recommendation)
+- **AES is not currently quantum vulnerable** — AES-256 retains 128-bit security under Grover's algorithm, though future quantum advances could change this
 - **FES is trivially broken** by known-plaintext attacks (demonstrated against the live server)
 - **FES has no nonce/IV** — same key always produces the same keystream
 - **FES has no authentication** — ciphertext forgery is trivial
@@ -29,7 +29,7 @@ We found that:
 | Ciphertext forgery resistance | None | Complete |
 | Peer review | None | 25+ years |
 | Hardware acceleration | None | AES-NI |
-| Quantum resistance | Unknown | 128-bit security |
+| Quantum resistance | Unknown | 128-bit security under Grover's (currently sufficient) |
 
 ## Attacks Demonstrated
 
@@ -90,4 +90,4 @@ See [`FINDINGS.md`](FINDINGS.md) for the complete security analysis, including:
 
 ## Conclusion
 
-FES is not a credible encryption standard. Organizations seeking quantum-resistant encryption should use **AES-256-GCM** (already quantum-resistant) for symmetric encryption, and NIST's post-quantum standards (ML-KEM, ML-DSA) for asymmetric operations.
+FES is not a credible encryption standard. Organizations seeking post-quantum encryption should use **AES-256-GCM** (currently considered quantum-resistant) for symmetric encryption, and NIST's post-quantum standards (ML-KEM, ML-DSA) for asymmetric operations.

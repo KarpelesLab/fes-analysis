@@ -154,15 +154,15 @@ Note: Our FES implementation is in pure Python, which disadvantages it. However,
 
 ### Claim 1: "AES encryption is quantum vulnerable"
 
-**VERDICT: FALSE**
+**VERDICT: MISLEADING**
 
-The website states FES is "engineered to replace quantum vulnerable AES encryption." This is the foundational claim, and it is wrong.
+The website states FES is "engineered to replace quantum vulnerable AES encryption." This claim significantly overstates the threat.
 
 - **Grover's algorithm** is the relevant quantum attack against symmetric ciphers. It provides a quadratic speedup to brute-force search, effectively halving the key length.
-- AES-256 under Grover's attack has **128-bit security** — still astronomically beyond any feasible attack.
-- **NIST explicitly states** that AES-256 is quantum-resistant and recommends it for post-quantum security.
+- AES-256 under Grover's attack retains **128-bit security** — currently considered well beyond any feasible attack.
+- **NIST currently recommends** AES-256 as suitable for post-quantum security.
 - The FES website conflates RSA/ECC vulnerability (which ARE threatened by Shor's algorithm) with AES vulnerability. These are completely different classes of cryptography.
-- No credible cryptographer considers AES-256 quantum-vulnerable.
+- While future advances in quantum computing could potentially change the landscape, there is currently no known quantum attack that makes AES-256 practically vulnerable. Characterizing AES as "quantum vulnerable" is not supported by current cryptographic consensus.
 
 ### Claim 2: "Infinite key-space starting at 832 bits"
 
@@ -285,7 +285,7 @@ This is a distinction without a difference:
 
 **VERDICT: FALSE**
 
-The Executive Summary claims immunity to HNDL attacks. HNDL refers to the threat that an adversary records encrypted traffic today and decrypts it later with a quantum computer. FES's purported immunity relies on the false claim that AES is quantum-vulnerable (see Claim 1).
+The Executive Summary claims immunity to HNDL attacks. HNDL refers to the threat that an adversary records encrypted traffic today and decrypts it later with a quantum computer. FES's purported immunity relies on the misleading claim that AES is quantum-vulnerable (see Claim 1).
 
 More critically: our attacks work TODAY, without any quantum computer. An adversary who has ever seen a single known plaintext/ciphertext pair for a given key can decrypt all past and future messages under that key immediately. FES is vulnerable to "Harvest Now, Decrypt Now."
 
@@ -534,7 +534,7 @@ The inability to independently implement FES from its specification is itself a 
 | Hardware acceleration | None | AES-NI on all modern CPUs |
 | Standardization | Self-published, spec incomplete | NIST standard (FIPS 197) |
 | Independent implementation | Impossible (7+ unpublished components) | Any language, byte-identical results |
-| Quantum resistance | Unknown (no analysis performed) | 128-bit security (sufficient) |
+| Quantum resistance | Unknown (no analysis performed) | 128-bit security under Grover's (currently considered sufficient) |
 | Floating-point dependency | Yes (portability risk) | No (integer only) |
 | Spec quality | ChatGPT-assisted, 12 papers, no formal proofs | Formal, peer-reviewed, published test vectors |
 
@@ -557,7 +557,7 @@ FES is not a credible encryption standard. Despite a suite of 12 papers, a Europ
 | "Multi-pass amplifies security" | Without scramble: even passes = null encryption. With scramble: KPA still works (2 queries) |
 | "FOTP provides nonce functionality" | Acts as boolean toggle, not a true nonce |
 | "Ultra Entropic Chaos" | Standard deterministic computation; not a recognized concept |
-| "Quantum-proof" | No analysis performed; meanwhile, AES-256 already has 128-bit quantum security |
+| "Quantum-proof" | No analysis performed; AES-256 currently retains 128-bit security under Grover's algorithm |
 | "Replaces AES" | ~1000x slower, no authentication, no nonce, trivially broken |
 | "Peer reviewed" | AI chatbots prompted within the author's own rigged evaluation framework |
 
@@ -574,11 +574,11 @@ This is not an exotic attack. It is the most basic test any cryptographer applie
 
 ### Recommendation
 
-Organizations seeking quantum-resistant encryption should use **AES-256-GCM** (already quantum-resistant with 128-bit security under Grover's algorithm) for symmetric encryption, and NIST's post-quantum standards (ML-KEM, ML-DSA) for asymmetric operations.
+Organizations seeking post-quantum encryption should use **AES-256-GCM** (currently considered quantum-resistant with 128-bit security under Grover's algorithm) for symmetric encryption, and NIST's post-quantum standards (ML-KEM, ML-DSA) for asymmetric operations.
 
 The FES_and_AES.pdf paper suggests using FES on top of AES "for compliance plus impenetrability." This is also inadvisable: layering a broken cipher on top of a sound one adds complexity and attack surface without security benefit. If the inner AES layer is secure (which it is), the outer FES layer adds nothing but latency and a false sense of additional security.
 
-There is no need for FES or any similar unvetted alternative. The established cryptographic community has already solved the post-quantum symmetric encryption problem: AES-256 is sufficient.
+There is no need for FES or any similar unvetted alternative. Based on current understanding, AES-256 provides adequate post-quantum symmetric security, though this assessment should be revisited as quantum computing advances.
 
 ---
 
